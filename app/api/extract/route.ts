@@ -59,20 +59,19 @@ export async function POST(request: Request) {
         if (matchInicio) {
           if (productoActual) todosLosProductos.push(productoActual);
 
-          // Estructura actualizada con "No. Pedido"
           productoActual = {
             'Código': matchInicio[2],
             'Descripción': '',
             'PMP': '',
             'Categoria': '',
-            'Temperatura': '',
+            'Temperatura': 'Refrigerado P',
             'Factura N°': numeroFactura,
             'Fecha Factura': fechaEmision,
             'País de Origen': '',
             'N° Lote': '',
             'Caducidad': '',
             'Packing List': marca,
-            'No. Pedido': numeroPedido, // <- Agregado aquí al lado de Packing list
+            'No. Pedido': numeroPedido,
             'Cant/ Factura (Unidades)': '',
             'Precio Unitario de Factura': '',
             'Valor Factura': '',
@@ -80,32 +79,47 @@ export async function POST(request: Request) {
             'Guia / BL': ''
           };
 
-          // ¡NUEVO! Lógica robusta para la descripción y precios
+          let preciosEncontrados = false;
           let lineasDescripcion = [];
           
-          // Miramos las siguientes líneas (hasta 6 líneas hacia adelante)
+          // 1. Buscar los precios en la MISMA LÍNEA del código
+          const lineaNormalizada = linea.replace(/\s+/g, ' ').trim();
+          const matchPreciosMismaLinea = lineaNormalizada.match(/(\d+)\s+([A-Za-z]+)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)$/i);
+          
+          if (matchPreciosMismaLinea) {
+              productoActual['Cant/ Factura (Unidades)'] = Number(matchPreciosMismaLinea[1]);
+              productoActual['Precio Unitario de Factura'] = Number(matchPreciosMismaLinea[3].replace(/,/g, ''));
+              productoActual['Valor Factura'] = Number(matchPreciosMismaLinea[4].replace(/,/g, ''));
+              preciosEncontrados = true;
+          }
+
+          // 2. Revisar las siguientes líneas para la descripción (y los precios si no estaban arriba)
           for (let j = i + 1; j < Math.min(i + 7, lineas.length); j++) {
             const lineaJ = lineas[j].trim();
             
-            // Si llegamos a "País de Origen", dejamos de buscar la descripción
-            if (lineaJ.startsWith('País de Origen')) {
-              break; 
-            }
+            // Si llegamos al País de Origen, terminamos el producto
+            if (lineaJ.startsWith('País de Origen')) break; 
 
-            // ¿Es la línea de las cantidades y precios?
-            const matchValores = lineaJ.match(/^(\d+)\s+PZA.*?([\d,]+\.\d{2}).*?([\d,]+\.\d{2})$/);
+            const lineaJNormalizada = lineaJ.replace(/\s+/g, ' ').trim();
+
+            // Si aún no hemos encontrado los precios, los buscamos aquí
+            if (!preciosEncontrados) {
+               const matchValores = lineaJNormalizada.match(/(\d+)\s+([A-Za-z]+)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)/i);
+               if (matchValores) {
+                 productoActual['Cant/ Factura (Unidades)'] = Number(matchValores[1]);
+                 productoActual['Precio Unitario de Factura'] = Number(matchValores[3].replace(/,/g, ''));
+                 productoActual['Valor Factura'] = Number(matchValores[4].replace(/,/g, ''));
+                 preciosEncontrados = true;
+                 continue; // Ya guardamos los precios, saltamos a la siguiente línea
+               }
+            }
             
-            if (matchValores) {
-              productoActual['Cant/ Factura (Unidades)'] = Number(matchValores[1]);
-              productoActual['Precio Unitario de Factura'] = Number(matchValores[2].replace(/,/g, ''));
-              productoActual['Valor Factura'] = Number(matchValores[3].replace(/,/g, ''));
-            } else if (lineaJ !== '') {
-              // Si no son los precios, no es el país, y no está vacía, ¡Es parte de la descripción!
-              lineasDescripcion.push(lineaJ);
+            // Si la línea no está vacía, es parte de la descripción
+            if (lineaJ !== '') {
+               lineasDescripcion.push(lineaJ);
             }
           }
           
-          // Unimos las líneas encontradas
           productoActual['Descripción'] = lineasDescripcion.join(' ').trim();
         }
 
